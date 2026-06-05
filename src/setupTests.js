@@ -3,3 +3,9 @@
 // expect(element).toHaveTextContent(/react/i)
 // learn more: https://github.com/testing-library/jest-dom
 import '@testing-library/jest-dom';
+
+// jsdom doesn't ship crypto.randomUUID; borrow Node's
+import { randomUUID } from 'crypto';
+
+if (!globalThis.crypto) globalThis.crypto = {};
+if (!globalThis.crypto.randomUUID) globalThis.crypto.randomUUID = randomUUID;

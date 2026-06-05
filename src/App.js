@@ -616,6 +616,9 @@ export default function App() {
     (sum, d) => sum + Math.min(effectiveMin(d) + d.oneTime, owedAmount(d)),
     0
   );
+  // The max payment is what's left of net income after total expenses.
+  // It already includes the minimum payments: pay the minimums, then
+  // everything still unspent goes to debt on top.
   const leftover = income - totalExpenses;
   // This month pays the upcoming minimums; every month after, the leftover
   // After the first payment has been made, all future months pay full leftover.
@@ -873,30 +876,30 @@ export default function App() {
                   <dd className="font-medium">{peso.format(income)}</dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-slate-500">Minimum debt payments</dt>
+                  <dt className="text-slate-500">Total expenses</dt>
                   <dd className="font-medium">
-                    -{peso.format(upcomingPayment)}
+                    -{peso.format(totalExpenses)}
                   </dd>
                 </div>
                 <div className="border-t border-slate-100 pt-2">
                   <div className="flex justify-between">
                     <dt className="font-semibold text-slate-900">
-                      Spending budget
+                      Available for debt payments
                     </dt>
                     <dd
                       className={`font-semibold ${
-                        income - upcomingPayment >= 0
+                        leftover >= upcomingPayment
                           ? "text-emerald-600"
                           : "text-red-600"
                       }`}
                     >
-                      {peso.format(income - upcomingPayment)}
+                      {peso.format(leftover)}
                     </dd>
                   </div>
-                  {totalExpenses > income - upcomingPayment && (
+                  {leftover < upcomingPayment && (
                     <p className="mt-0.5 text-right text-xs text-red-600">
-                      Expenses are {peso.format(totalExpenses)} short by{" "}
-                      <b>{peso.format(totalExpenses - (income - upcomingPayment))}</b>
+                      Short of the {peso.format(upcomingPayment)} minimum
+                      payments by <b>{peso.format(upcomingPayment - leftover)}</b>
                     </p>
                   )}
                 </div>

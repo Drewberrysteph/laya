@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const STORAGE_KEY = "debtfree:v1";
 // Before every save, the previous save is copied here. If the main copy is
@@ -75,6 +75,12 @@ function interestAmount(debt) {
   return debt.balance * (debt.rate / 100);
 }
 
+// For rate-bearing debts, the minimum tracks the current interest (dynamic).
+// For zero-rate debts, it's whatever the user typed.
+function effectiveMin(debt) {
+  return debt.rate > 0 ? interestAmount(debt) : debt.minPayment;
+}
+
 // Forecast, the way you'd do it on paper: this month pays the upcoming
 // min payments (one-times included), every month after pays the leftover
 // (income minus expenses). Each payment comes straight off the total.
@@ -86,7 +92,9 @@ function buildForecast(totalOwed, firstPayment, monthlyPayment) {
 
   for (let month = 1; month <= 600 && remaining > 0.005; month++) {
     const budget =
-      month === 1 && firstPayment > 0 ? firstPayment : monthlyPayment;
+      month === 1 && firstPayment > 0
+        ? Math.max(firstPayment, monthlyPayment)
+        : monthlyPayment;
     if (budget <= 0) return null;
     const payment = Math.min(budget, remaining);
     remaining -= payment;
@@ -98,17 +106,21 @@ function buildForecast(totalOwed, firstPayment, monthlyPayment) {
 // Month 1 is the current month (e.g. Jun 2026), then Jul 2026, and so on
 function forecastMonthLabel(month) {
   const date = new Date();
+  date.setDate(1);
   date.setMonth(date.getMonth() + month - 1);
   return date.toLocaleDateString("en-PH", { month: "short", year: "numeric" });
 }
 
+
 function humanizeMonths(months) {
   const date = new Date();
+  date.setDate(1);
   date.setMonth(date.getMonth() + months);
   const label = date.toLocaleDateString("en-PH", {
     month: "short",
     year: "numeric",
   });
+  if (months === 0) return `This month (${label})`;
   if (months === 1) return `Next month (${label})`;
   if (months < 12) return `In ${months} months (${label})`;
   const years = Math.floor(months / 12);
@@ -121,11 +133,11 @@ function humanizeMonths(months) {
 function Card({ title, action, children }) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
-      <header className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
+      <header className="flex flex-wrap items-center justify-between gap-y-1 border-b border-slate-100 px-4 py-3 sm:px-5 sm:py-3.5">
         <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
         {action}
       </header>
-      <div className="px-5 py-4">{children}</div>
+      <div className="px-4 py-4 sm:px-5">{children}</div>
     </section>
   );
 }
@@ -176,22 +188,22 @@ function AddExpenseForm({ onAdd }) {
   }
 
   return (
-    <form onSubmit={submit} className="flex gap-2">
+    <form onSubmit={submit} className="flex flex-wrap gap-2">
       <input
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder="e.g. Groceries"
-        className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+        className="min-w-0 flex-1 basis-32 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
       />
       <AmountInput
         value={amount}
         onChange={setAmount}
         placeholder="Amount"
-        className="w-32"
+        className="w-32 shrink-0"
       />
       <button
         type="submit"
-        className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-700"
+        className="shrink-0 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-700"
       >
         Add
       </button>
@@ -310,20 +322,22 @@ function PaymentsModal({ debts, income, expensesTotal, onSave, onClose }) {
 
   function belowMin(debt) {
     const value = parseFloat(amounts[debt.id]);
-    // The minimum only applies when something is entered, and never more
-    // than what's owed (the final payment can be smaller than the min)
-    return (
-      value > 0 &&
-      debt.minPayment > 0 &&
-      value < Math.min(debt.minPayment, owedAmount(debt))
-    );
+    const min = effectiveMin(debt);
+    return value > 0 && min > 0 && value < Math.min(min, owedAmount(debt));
+  }
+
+  function wrongOneTime(debt) {
+    const value = parseFloat(amounts[debt.id]);
+    return value > 0 && debt.oneTime > 0 && value !== debt.oneTime;
   }
 
   const hasBelowMin = debts.some(belowMin);
+  const hasWrongOneTime = debts.some(wrongOneTime);
+  const hasError = hasBelowMin || hasWrongOneTime;
 
   function submit(e) {
     e.preventDefault();
-    if (totalEntered <= 0 || hasBelowMin) return;
+    if (totalEntered <= 0 || hasError) return;
     onSave(amounts);
   }
 
@@ -336,7 +350,7 @@ function PaymentsModal({ debts, income, expensesTotal, onSave, onClose }) {
         className="w-full max-w-md rounded-xl bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
+        <header className="flex items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-5 sm:py-3.5">
           <h2 className="text-sm font-semibold text-slate-900">
             Pay your debts
           </h2>
@@ -349,10 +363,10 @@ function PaymentsModal({ debts, income, expensesTotal, onSave, onClose }) {
           </button>
         </header>
         <form onSubmit={submit}>
-          <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto px-5">
+          <ul className="max-h-72 divide-y divide-slate-100 overflow-y-auto px-4 sm:px-5">
             {debts.map((debt) => (
               <li key={debt.id} className="py-3">
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-slate-900">
                       {debt.name}
@@ -361,8 +375,8 @@ function PaymentsModal({ debts, income, expensesTotal, onSave, onClose }) {
                       Owes {peso.format(owedAmount(debt))}
                       {debt.rate > 0 &&
                         ` · ${peso.format(interestAmount(debt))} is interest`}
-                      {debt.minPayment > 0 &&
-                        ` · min ${peso.format(debt.minPayment)}/month`}
+                      {effectiveMin(debt) > 0 &&
+                        ` · min ${peso.format(effectiveMin(debt))}/month`}
                       {debt.oneTime > 0 &&
                         ` · one-time ${peso.format(debt.oneTime)}`}
                     </p>
@@ -373,32 +387,39 @@ function PaymentsModal({ debts, income, expensesTotal, onSave, onClose }) {
                       setAmounts((a) => ({ ...a, [debt.id]: v }))
                     }
                     placeholder={
-                      debt.minPayment > 0
-                        ? debt.minPayment.toFixed(2)
+                      effectiveMin(debt) > 0
+                        ? effectiveMin(debt).toFixed(2)
                         : debt.oneTime > 0
                         ? debt.oneTime.toFixed(2)
                         : "0.00"
                     }
-                    invalid={belowMin(debt)}
-                    className="w-32"
+                    invalid={belowMin(debt) || wrongOneTime(debt)}
+                    className="w-full sm:w-32"
                   />
                 </div>
                 {belowMin(debt) && (
                   <p className="mt-1 text-right text-xs text-red-600">
-                    Below the {peso.format(debt.minPayment)} minimum
+                    Below the {peso.format(effectiveMin(debt))} minimum
+                  </p>
+                )}
+                {wrongOneTime(debt) && (
+                  <p className="mt-1 text-right text-xs text-red-600">
+                    Must be exactly {peso.format(debt.oneTime)} (one-time)
                   </p>
                 )}
               </li>
             ))}
           </ul>
-          <footer className="border-t border-slate-100 px-5 py-4">
+          <footer className="border-t border-slate-100 px-4 py-4 sm:px-5">
             <button
               type="submit"
-              disabled={totalEntered <= 0 || hasBelowMin}
+              disabled={totalEntered <= 0 || hasError}
               className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
             >
               {hasBelowMin
                 ? "A payment is below its minimum"
+                : hasWrongOneTime
+                ? "One-time payment must match exactly"
                 : totalEntered > 0
                 ? `Pay ${peso.format(totalEntered)}`
                 : "Enter a payment"}
@@ -508,36 +529,40 @@ function Stat({ label, value, muted }) {
 }
 
 function DebtRow({ debt, onRemove }) {
+  const minVal = debt.oneTime > 0 ? debt.oneTime : effectiveMin(debt);
+  const minLabel = debt.oneTime > 0 ? "One-time" : "Min/month";
   return (
-    <li className="flex flex-wrap items-center gap-2 py-3">
-      <div className="min-w-0 flex-1 basis-36">
-        <p className="truncate text-sm font-medium text-slate-900">{debt.name}</p>
-        <p className="truncate text-xs text-slate-500">
-          {peso.format(debt.balance)}
-          {debt.rate > 0 && ` + ${debt.rate}% interest`}
-        </p>
+    <li className="py-3">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-slate-900">{debt.name}</p>
+          <p className="truncate text-xs text-slate-500">
+            {peso.format(debt.balance)}
+            {debt.rate > 0 && ` + ${debt.rate}% interest`}
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            if (window.confirm(`Delete "${debt.name}"?`)) onRemove(debt.id);
+          }}
+          aria-label={`Delete ${debt.name}`}
+          className="shrink-0 rounded-lg px-2 py-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+        >
+          ✕
+        </button>
       </div>
-      <Stat label="Owed" value={peso.format(owedAmount(debt))} />
-      <Stat
-        label={debt.oneTime > 0 ? "One-time" : "Min/month"}
-        value={
-          debt.oneTime > 0
-            ? peso.format(debt.oneTime)
-            : debt.minPayment > 0
-            ? peso.format(debt.minPayment)
-            : "–"
-        }
-        muted={debt.oneTime <= 0 && debt.minPayment <= 0}
-      />
-      <button
-        onClick={() => {
-          if (window.confirm(`Delete "${debt.name}"?`)) onRemove(debt.id);
-        }}
-        aria-label={`Delete ${debt.name}`}
-        className="rounded-lg px-2 py-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-      >
-        ✕
-      </button>
+      <div className="mt-1.5 flex gap-5">
+        <div>
+          <p className="text-xs text-slate-400">Owed</p>
+          <p className="text-sm font-semibold text-slate-900">{peso.format(owedAmount(debt))}</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-400">{minLabel}</p>
+          <p className={`text-sm ${minVal > 0 ? "font-semibold text-slate-900" : "text-slate-300"}`}>
+            {minVal > 0 ? peso.format(minVal) : "–"}
+          </p>
+        </div>
+      </div>
     </li>
   );
 }
@@ -547,13 +572,17 @@ export default function App() {
   const [showPayments, setShowPayments] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [incomeDraft, setIncomeDraft] = useState("");
+  const isMount = useRef(true);
   const { income, expenses, debts, history } = state;
 
   useEffect(() => {
-    // Keep the previous save as a backup copy before overwriting it, so
-    // one bad save (or an accidental delete) is always recoverable
-    const previous = localStorage.getItem(STORAGE_KEY);
-    if (previous) localStorage.setItem(BACKUP_KEY, previous);
+    // Skip the backup write on first render — the loaded state IS the backup.
+    // Only write backup when the user actually changes something.
+    if (!isMount.current) {
+      const previous = localStorage.getItem(STORAGE_KEY);
+      if (previous) localStorage.setItem(BACKUP_KEY, previous);
+    }
+    isMount.current = false;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     // Capture the original snapshot once, the first time real data exists
     if (state.debts.length > 0 && !localStorage.getItem(ORIGINAL_KEY)) {
@@ -571,17 +600,41 @@ export default function App() {
   // What the next round of payments adds up to: every monthly minimum
   // plus every one-time payment, each capped at what's actually owed
   const upcomingPayment = debts.reduce(
-    (sum, d) => sum + Math.min(d.minPayment + d.oneTime, owedAmount(d)),
+    (sum, d) => sum + Math.min(effectiveMin(d) + d.oneTime, owedAmount(d)),
     0
   );
   const leftover = income - totalExpenses;
   // This month pays the upcoming minimums; every month after, the leftover
+  // After the first payment has been made, all future months pay full leftover.
+  // upcomingPayment only applies before any payments have happened.
   const forecast =
-    totalOwed > 0 ? buildForecast(totalOwed, upcomingPayment, leftover) : [];
+    totalOwed > 0
+      ? buildForecast(totalOwed, history.length > 0 ? 0 : upcomingPayment, leftover)
+      : [];
   const months = forecast === null ? null : forecast.length;
 
+  // Build the full breakdown: historical (paid) steps prepended to remaining forecast.
+  // Reconstruct the running balance by adding back all payments, then replay forward.
+  let allForecastSteps = null;
+  if (forecast !== null) {
+    const paidAmounts = [...history].reverse().map((h) => h.total);
+    let runningBalance = totalOwed;
+    for (const total of paidAmounts) runningBalance += total;
+    const historicalSteps = [];
+    for (let i = 0; i < paidAmounts.length; i++) {
+      runningBalance -= paidAmounts[i];
+      historicalSteps.push({ month: i + 1, payment: paidAmounts[i], remaining: Math.max(0, runningBalance), paid: true });
+    }
+    const remainingSteps = forecast.map((step) => ({
+      ...step,
+      month: paidAmounts.length + step.month,
+      paid: false,
+    }));
+    allForecastSteps = [...historicalSteps, ...remainingSteps];
+  }
+
   // Every list shows the biggest amounts first
-  const sortedDebts = [...debts].sort((a, b) => owedAmount(b) - owedAmount(a));
+  const sortedDebts = [...debts].filter((d) => d.balance > 0.005).sort((a, b) => owedAmount(b) - owedAmount(a));
   const sortedExpenses = [...expenses].sort((a, b) => b.amount - a.amount);
 
   function update(patch) {
@@ -694,13 +747,13 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto max-w-3xl px-4 py-10">
+      <div className="mx-auto max-w-3xl px-4 py-6 sm:py-10">
         {/* Hero */}
         <header className="mb-8 text-center">
           <p className="text-sm font-medium uppercase tracking-wide text-slate-500">
             Total debt to pay
           </p>
-          <p className="mt-1 text-5xl font-bold tracking-tight">
+          <p className="mt-1 text-4xl font-bold tracking-tight sm:text-5xl">
             {peso.format(totalOwed)}
           </p>
           {originalOwed > 0 && (
@@ -724,65 +777,52 @@ export default function App() {
                 debt-free date.
               </p>
             ) : (
-              <>
-                <p className="text-slate-600">
-                  Debt free:{" "}
-                  <span className="font-semibold text-emerald-600">
-                    {humanizeMonths(months)}
-                  </span>
-                </p>
-                <details className="mx-auto mt-2 max-w-sm">
-                  <summary className="cursor-pointer text-xs text-slate-400 transition-colors hover:text-slate-600">
-                    See the month-by-month breakdown
-                  </summary>
-                  <ol className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white p-3 text-left text-xs">
-                    {[...forecast].reverse().map((step) => {
-                      const spendable = leftover - step.payment;
-                      return (
-                        <li
-                          key={step.month}
-                          className="flex items-center justify-between py-1.5 first:pt-0 last:pb-0"
-                        >
-                          <span className="text-slate-500">
-                            <span className="font-medium text-slate-900">
-                              {forecastMonthLabel(step.month)}
-                            </span>{" "}
-                            · pay {peso.format(step.payment)}
-                            {step.remaining > 0.005 && (
-                              <span className="block text-[11px] text-slate-400">
-                                {step.month === 1
-                                  ? `min payments due${
-                                      spendable < 0
-                                        ? `, ${peso.format(
-                                            -spendable
-                                          )} over your leftover`
-                                        : ""
-                                    }`
-                                  : spendable > 0.005
-                                  ? `${peso.format(
-                                      spendable
-                                    )} free for expenses`
-                                  : "max payment after expenses"}
-                              </span>
-                            )}
+              <p className="text-slate-600">
+                Debt free:{" "}
+                <span className="font-semibold text-emerald-600">
+                  {months === 1
+                    ? `Next payment (${forecastMonthLabel(history.length + months)})`
+                    : `In ${months} payments (${forecastMonthLabel(history.length + months)})`}
+                </span>
+              </p>
+            )}
+            {allForecastSteps && allForecastSteps.length > 0 && (
+              <details className="mx-auto mt-2 max-w-sm">
+                <summary className="cursor-pointer text-xs text-slate-400 transition-colors hover:text-slate-600">
+                  See the month-by-month breakdown
+                </summary>
+                <ol className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 bg-white p-3 text-left text-xs">
+                  {[...allForecastSteps].reverse().map((step) => (
+                    <li
+                      key={step.month}
+                      className={`flex items-center justify-between py-1.5 first:pt-0 last:pb-0 ${step.paid ? "opacity-50" : ""}`}
+                    >
+                      <span className={`text-slate-500 ${step.paid ? "line-through" : ""}`}>
+                        <span className="font-medium text-slate-900">
+                          {forecastMonthLabel(step.month)}
+                        </span>{" "}
+                        · pay {peso.format(step.payment)}
+                        {!step.paid && step.remaining > 0.005 && (
+                          <span className="block text-[11px] text-slate-400">
+                            {step.month === history.length + 1 && upcomingPayment > leftover
+                              ? "min payments due"
+                              : "max payment after expenses"}
                           </span>
-                          <span
-                            className={`font-medium ${
-                              step.remaining <= 0.005
-                                ? "text-emerald-600"
-                                : "text-slate-900"
-                            }`}
-                          >
-                            {step.remaining <= 0.005
-                              ? "Debt free 🎉"
-                              : `${peso.format(step.remaining)} left`}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                </details>
-              </>
+                        )}
+                      </span>
+                      <span
+                        className={`font-medium ${step.paid ? "line-through" : ""} ${
+                          step.remaining <= 0.005 ? "text-emerald-600" : "text-slate-900"
+                        }`}
+                      >
+                        {step.remaining <= 0.005
+                          ? "Debt free 🎉"
+                          : `${peso.format(step.remaining)} left`}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </details>
             )}
           </div>
         </header>
@@ -858,40 +898,45 @@ export default function App() {
               Monthly expenses (groceries, internet, etc...)
             </p>
             {expenses.length > 0 && (
-              <ul className="mb-3 divide-y divide-slate-100">
-                {sortedExpenses.map((expense) => (
-                  <li
-                    key={expense.id}
-                    className="flex items-center justify-between py-2"
-                  >
-                    <span className="text-sm">{expense.name}</span>
-                    <span className="flex items-center gap-2">
-                      <span className="text-sm text-slate-600">
-                        {peso.format(expense.amount)}
+              <details className="mb-3">
+                <summary className="cursor-pointer text-xs text-slate-400 transition-colors hover:text-slate-600">
+                  {expenses.length} {expenses.length === 1 ? "expense" : "expenses"} · {peso.format(totalExpenses)} total
+                </summary>
+                <ul className="mt-2 divide-y divide-slate-100">
+                  {sortedExpenses.map((expense) => (
+                    <li
+                      key={expense.id}
+                      className="flex items-center justify-between py-2"
+                    >
+                      <span className="text-sm">{expense.name}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="text-sm text-slate-600">
+                          {peso.format(expense.amount)}
+                        </span>
+                        <button
+                          onClick={() =>
+                            update({
+                              expenses: expenses.filter((e) => e.id !== expense.id),
+                            })
+                          }
+                          aria-label={`Delete ${expense.name}`}
+                          className="rounded px-1.5 py-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                        >
+                          ✕
+                        </button>
                       </span>
-                      <button
-                        onClick={() =>
-                          update({
-                            expenses: expenses.filter((e) => e.id !== expense.id),
-                          })
-                        }
-                        aria-label={`Delete ${expense.name}`}
-                        className="rounded px-1.5 py-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-                      >
-                        ✕
-                      </button>
+                    </li>
+                  ))}
+                  <li className="flex items-center justify-between py-2">
+                    <span className="text-sm font-semibold text-slate-900">
+                      Total expenses
+                    </span>
+                    <span className="pr-7 text-sm font-semibold text-slate-900">
+                      {peso.format(totalExpenses)}
                     </span>
                   </li>
-                ))}
-                <li className="flex items-center justify-between py-2">
-                  <span className="text-sm font-semibold text-slate-900">
-                    Total expenses
-                  </span>
-                  <span className="pr-7 text-sm font-semibold text-slate-900">
-                    {peso.format(totalExpenses)}
-                  </span>
-                </li>
-              </ul>
+                </ul>
+              </details>
             )}
             <AddExpenseForm onAdd={addExpense} />
           </Card>
@@ -902,7 +947,7 @@ export default function App() {
             action={
               upcomingPayment > 0 && (
                 <p className="text-xs text-slate-500">
-                  Upcoming min payment for this month{" "}
+                  Min due{" "}
                   <span className="font-semibold text-slate-900">
                     {peso.format(upcomingPayment)}
                   </span>
@@ -949,7 +994,7 @@ export default function App() {
           {history.length > 0 && (
             <Card title="History">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {history.map((entry) => (
+                {[...history].reverse().map((entry) => (
                   <div key={entry.id} className="relative">
                     <button
                       onClick={() => setSelectedEntry(entry)}

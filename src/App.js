@@ -533,13 +533,23 @@ function DebtRow({ debt, onRemove }) {
   const minLabel = debt.oneTime > 0 ? "One-time" : "Min/month";
   return (
     <li className="py-3">
-      <div className="flex items-start gap-2">
+      {/* Desktop: single row. Mobile: name+delete on top, stats below. */}
+      <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-slate-900">{debt.name}</p>
           <p className="truncate text-xs text-slate-500">
             {peso.format(debt.balance)}
             {debt.rate > 0 && ` + ${debt.rate}% interest`}
           </p>
+        </div>
+        {/* Stats: inline on desktop, hidden here and shown below on mobile */}
+        <div className="hidden sm:flex items-center gap-2">
+          <Stat label="Owed" value={peso.format(owedAmount(debt))} />
+          <Stat
+            label={minLabel}
+            value={minVal > 0 ? peso.format(minVal) : "–"}
+            muted={minVal <= 0}
+          />
         </div>
         <button
           onClick={() => {
@@ -551,7 +561,8 @@ function DebtRow({ debt, onRemove }) {
           ✕
         </button>
       </div>
-      <div className="mt-1.5 flex gap-5">
+      {/* Stats row: mobile only */}
+      <div className="mt-1.5 flex gap-5 sm:hidden">
         <div>
           <p className="text-xs text-slate-400">Owed</p>
           <p className="text-sm font-semibold text-slate-900">{peso.format(owedAmount(debt))}</p>
@@ -572,6 +583,8 @@ export default function App() {
   const [showPayments, setShowPayments] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [incomeDraft, setIncomeDraft] = useState("");
+  const [showImport, setShowImport] = useState(false);
+  const [importText, setImportText] = useState("");
   const isMount = useRef(true);
   const { income, expenses, debts, history } = state;
 
@@ -680,6 +693,29 @@ export default function App() {
       )
     ) {
       setState(original);
+    }
+  }
+
+  function exportData() {
+    const data = localStorage.getItem(STORAGE_KEY) || JSON.stringify(state);
+    navigator.clipboard.writeText(data).then(() =>
+      window.alert("Data copied to clipboard. Paste it on the other device using Import.")
+    );
+  }
+
+  function importData() {
+    try {
+      const parsed = JSON.parse(importText);
+      const normalized = normalize(parsed);
+      setState(normalized);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+      if (!localStorage.getItem(ORIGINAL_KEY)) {
+        localStorage.setItem(ORIGINAL_KEY, JSON.stringify(normalized));
+      }
+      setShowImport(false);
+      setImportText("");
+    } catch {
+      window.alert("Invalid data — make sure you pasted the full export text.");
     }
   }
 
@@ -1041,6 +1077,18 @@ export default function App() {
           </p>
           <div className="mt-2 flex flex-wrap justify-center gap-2">
             <button
+              onClick={exportData}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-white hover:text-slate-700"
+            >
+              Export data
+            </button>
+            <button
+              onClick={() => setShowImport(true)}
+              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-white hover:text-slate-700"
+            >
+              Import data
+            </button>
+            <button
               onClick={backUpNow}
               className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-white hover:text-slate-700"
             >
@@ -1086,6 +1134,47 @@ export default function App() {
             entry={selectedEntry}
             onClose={() => setSelectedEntry(null)}
           />
+        )}
+
+        {showImport && (
+          <div
+            className="fixed inset-0 z-10 flex items-center justify-center bg-slate-900/50 p-4"
+            onClick={() => setShowImport(false)}
+          >
+            <div
+              className="w-full max-w-md rounded-xl bg-white shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <header className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
+                <h2 className="text-sm font-semibold text-slate-900">Import data</h2>
+                <button
+                  onClick={() => setShowImport(false)}
+                  className="rounded-lg px-2 py-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                >
+                  ✕
+                </button>
+              </header>
+              <div className="px-5 py-4">
+                <p className="mb-3 text-sm text-slate-500">
+                  Paste the exported data from your other device below.
+                </p>
+                <textarea
+                  value={importText}
+                  onChange={(e) => setImportText(e.target.value)}
+                  rows={5}
+                  placeholder='{"income":...}'
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs text-slate-900 placeholder-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                />
+                <button
+                  onClick={importData}
+                  disabled={!importText.trim()}
+                  className="mt-3 w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                >
+                  Import &amp; replace
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/laya/static/css/main.ccdebaf4.css",
+    "main.js": "/laya/static/js/main.45164b02.js",
+    "static/js/453.6ff62771.chunk.js": "/laya/static/js/453.6ff62771.chunk.js",
+    "index.html": "/laya/index.html",
+    "main.ccdebaf4.css.map": "/laya/static/css/main.ccdebaf4.css.map",
+    "main.45164b02.js.map": "/laya/static/js/main.45164b02.js.map",
+    "453.6ff62771.chunk.js.map": "/laya/static/js/453.6ff62771.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.ccdebaf4.css",
+    "static/js/main.45164b02.js"
+  ]
+}
